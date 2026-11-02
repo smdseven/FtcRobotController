@@ -61,15 +61,20 @@ import com.qualcomm.robotcore.util.ElapsedTime;
  * A direction change pauses briefly at zero power before the motor reverses.
  * L2 turns the nectar shooter on and L1 turns it off.
  * R2 turns the pollen shooter on and R1 turns it off.
- * Each motor stays in that state until the other button is pressed.
+ * Triangle toggles shooter speed trim. While it is on, the left stick trims nectar
+ * and the right stick trims pollen. Stick up raises the saved speed slowly, stick down lowers it.
+ * Each motor stays on or off until the other button is pressed.
  */
 
 @TeleOp(name = "Match Teleop", group = "Drive")
 public class MatchTeleOp extends LinearOpMode {
 
     private static final float TRIGGER_PRESSED = 0.5f;
+    private static final float STICK_DEADZONE = 0.05f;
 
     private ElapsedTime runtime = new ElapsedTime();
+    private ElapsedTime loopTimer = new ElapsedTime();
+    private boolean speedTrimEnabled = false;
 
     @Override
     public void runOpMode() {
@@ -85,8 +90,12 @@ public class MatchTeleOp extends LinearOpMode {
 
         waitForStart();
         runtime.reset();
+        loopTimer.reset();
 
         while (opModeIsActive()) {
+            double loopSeconds = loopTimer.seconds();
+            loopTimer.reset();
+
             // Left stick forward is negative, so flip it. Positive axial means drive forward.
             double axial = -gamepad1.left_stick_y;
             double lateral = gamepad1.left_stick_x;
@@ -94,7 +103,7 @@ public class MatchTeleOp extends LinearOpMode {
 
             drive.drive(axial, lateral, yaw);
             readIntakeControls(intake);
-            readShooterControls(shooters);
+            readShooterControls(shooters, loopSeconds);
 
             telemetry.addData("Status", "Run Time: " + runtime.toString());
             telemetry.addData("Forward / Strafe / Turn", "%4.2f, %4.2f, %4.2f", axial, lateral, yaw);
@@ -102,6 +111,10 @@ public class MatchTeleOp extends LinearOpMode {
             telemetry.addData("Nectar / Pollen", "%s / %s",
                     shooters.isNectarRunning() ? "on" : "off",
                     shooters.isPollenRunning() ? "on" : "off");
+            telemetry.addData("Speed trim", speedTrimEnabled ? "on" : "off");
+            telemetry.addData("Nectar / Pollen speed", "%d%% / %d%%",
+                    Math.round(shooters.getNectarPower() * 100),
+                    Math.round(shooters.getPollenPower() * 100));
             telemetry.update();
         }
     }
@@ -118,7 +131,11 @@ public class MatchTeleOp extends LinearOpMode {
         intake.update();
     }
 
-    private void readShooterControls(Shooters shooters) {
+    private void readShooterControls(Shooters shooters, double loopSeconds) {
+        if (gamepad2.triangleWasPressed()) {
+            speedTrimEnabled = !speedTrimEnabled;
+        }
+
         if (gamepad2.left_bumper) {
             shooters.setNectarRunning(false);
         } else if (gamepad2.left_trigger > TRIGGER_PRESSED) {
@@ -130,5 +147,18 @@ public class MatchTeleOp extends LinearOpMode {
         } else if (gamepad2.right_trigger > TRIGGER_PRESSED) {
             shooters.setPollenRunning(true);
         }
+
+        if (speedTrimEnabled) {
+            shooters.adjustNectarPower(powerDelta(gamepad2.left_stick_y, loopSeconds));
+            shooters.adjustPollenPower(powerDelta(gamepad2.right_stick_y, loopSeconds));
+        }
+    }
+
+    private double powerDelta(float stickY, double loopSeconds) {
+        if (Math.abs(stickY) < STICK_DEADZONE) {
+            return 0;
+        }
+        // Stick up is negative. Negating it makes up increase power and down decrease it.
+        return -stickY * Shooters.POWER_CHANGE_PER_SECOND * loopSeconds;
     }
 }

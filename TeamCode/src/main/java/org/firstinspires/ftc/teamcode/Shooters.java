@@ -16,11 +16,15 @@ public class Shooters {
 
     public static final String NECTAR = "nectar_shooter";
     public static final String POLLEN = "pollen_shooter";
-    public static final double RUNNING_POWER = 1.0;
+    public static final double POWER_CHANGE_PER_SECOND = 0.20;
+
+    private static final double INITIAL_POWER = 1.0;
 
     private DcMotor nectarShooter = null;
     private DcMotor pollenShooter = null;
 
+    private double nectarPower = INITIAL_POWER;
+    private double pollenPower = INITIAL_POWER;
     private boolean nectarRunning = false;
     private boolean pollenRunning = false;
 
@@ -41,12 +45,26 @@ public class Shooters {
 
     public void setNectarRunning(boolean running) {
         nectarRunning = running;
-        nectarShooter.setPower(running ? RUNNING_POWER : 0);
+        applyNectarPower();
     }
 
     public void setPollenRunning(boolean running) {
         pollenRunning = running;
-        pollenShooter.setPower(running ? RUNNING_POWER : 0);
+        applyPollenPower();
+    }
+
+    public void adjustNectarPower(double delta) {
+        nectarPower = clampPower(nectarPower + delta);
+        if (nectarRunning) {
+            applyNectarPower();
+        }
+    }
+
+    public void adjustPollenPower(double delta) {
+        pollenPower = clampPower(pollenPower + delta);
+        if (pollenRunning) {
+            applyPollenPower();
+        }
     }
 
     public boolean isNectarRunning() {
@@ -55,6 +73,26 @@ public class Shooters {
 
     public boolean isPollenRunning() {
         return pollenRunning;
+    }
+
+    public double getNectarPower() {
+        return nectarPower;
+    }
+
+    public double getPollenPower() {
+        return pollenPower;
+    }
+
+    private void applyNectarPower() {
+        nectarShooter.setPower(nectarRunning ? nectarPower : 0);
+    }
+
+    private void applyPollenPower() {
+        pollenShooter.setPower(pollenRunning ? pollenPower : 0);
+    }
+
+    private double clampPower(double power) {
+        return Math.max(0.0, Math.min(1.0, power));
     }
 
     private void prepare(DcMotor motor) {
