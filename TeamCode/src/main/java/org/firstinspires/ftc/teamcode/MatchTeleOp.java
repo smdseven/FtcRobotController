@@ -61,8 +61,9 @@ import com.qualcomm.robotcore.util.ElapsedTime;
  * A direction change pauses briefly at zero power before the motor reverses.
  * L2 turns the nectar shooter on and L1 turns it off.
  * R2 turns the pollen shooter on and R1 turns it off.
- * Triangle toggles shooter speed trim. While it is on, the left stick trims nectar
- * and the right stick trims pollen. Stick up raises the saved speed slowly, stick down lowers it.
+ * Hold Triangle for 3 seconds to enter shooter speed trim. A later press leaves trim.
+ * While trim is on, the left stick trims nectar and the right stick trims pollen.
+ * Stick up raises the saved speed slowly, and stick down lowers it.
  * Each motor stays on or off until the other button is pressed.
  */
 
@@ -71,10 +72,13 @@ public class MatchTeleOp extends LinearOpMode {
 
     private static final float TRIGGER_PRESSED = 0.5f;
     private static final float STICK_DEADZONE = 0.05f;
+    private static final double TRIM_ENTER_HOLD_SECONDS = 3.0;
 
     private ElapsedTime runtime = new ElapsedTime();
     private ElapsedTime loopTimer = new ElapsedTime();
     private boolean speedTrimEnabled = false;
+    private double triangleHoldSeconds = 0;
+    private boolean ignoreTriangleUntilRelease = false;
 
     @Override
     public void runOpMode() {
@@ -132,9 +136,7 @@ public class MatchTeleOp extends LinearOpMode {
     }
 
     private void readShooterControls(Shooters shooters, double loopSeconds) {
-        if (gamepad2.triangleWasPressed()) {
-            speedTrimEnabled = !speedTrimEnabled;
-        }
+        updateSpeedTrim(loopSeconds);
 
         if (gamepad2.left_bumper) {
             shooters.setNectarRunning(false);
@@ -151,6 +153,33 @@ public class MatchTeleOp extends LinearOpMode {
         if (speedTrimEnabled) {
             shooters.adjustNectarPower(powerDelta(gamepad2.left_stick_y, loopSeconds));
             shooters.adjustPollenPower(powerDelta(gamepad2.right_stick_y, loopSeconds));
+        }
+    }
+
+    private void updateSpeedTrim(double loopSeconds) {
+        if (!speedTrimEnabled) {
+            if (gamepad2.triangle) {
+                triangleHoldSeconds += loopSeconds;
+                if (triangleHoldSeconds >= TRIM_ENTER_HOLD_SECONDS) {
+                    speedTrimEnabled = true;
+                    ignoreTriangleUntilRelease = true;
+                    triangleHoldSeconds = 0;
+                }
+            } else {
+                triangleHoldSeconds = 0;
+            }
+            return;
+        }
+
+        if (ignoreTriangleUntilRelease) {
+            if (!gamepad2.triangle) {
+                ignoreTriangleUntilRelease = false;
+            }
+            return;
+        }
+
+        if (gamepad2.triangleWasPressed()) {
+            speedTrimEnabled = false;
         }
     }
 

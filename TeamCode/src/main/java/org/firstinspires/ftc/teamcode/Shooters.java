@@ -39,6 +39,7 @@ public class Shooters {
         pollenShooter = hardwareMap.get(DcMotor.class, POLLEN);
         prepare(nectarShooter);
         prepare(pollenShooter);
+        nectarShooter.setDirection(DcMotor.Direction.REVERSE);
         setNectarRunning(false);
         setPollenRunning(false);
     }
