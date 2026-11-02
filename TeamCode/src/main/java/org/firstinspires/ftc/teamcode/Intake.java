@@ -25,8 +25,8 @@ public class Intake {
     }
 
     public static final String MOTOR_NAME = "intake_motor";
-    public static final double FORWARD_POWER = 1.0;
-    public static final double REVERSE_POWER = -0.5;
+    public static final double FORWARD_POWER = -1.0;
+    public static final double REVERSE_POWER = 0.5;
     public static final double REVERSAL_PAUSE_SECONDS = 0.1;
 
     private DcMotor motor = null;
