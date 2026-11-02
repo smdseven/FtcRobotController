@@ -55,17 +55,29 @@ import com.qualcomm.robotcore.util.ElapsedTime;
  *
  * Motor names and directions live in MecanumDrive. If the robot drives backward on the first test,
  * flip FORWARD and REVERSE on the motors in that class.
+ *
+ * Gamepad 2 runs the intake through Intake and the shooters through Shooters.
+ * Circle turns the intake on and Cross turns it off.
+ * L2 turns the nectar shooter on and L1 turns it off.
+ * R2 turns the pollen shooter on and R1 turns it off.
+ * Each motor stays in that state until the other button is pressed.
  */
 
 @TeleOp(name="Mecanum Drive", group="Drive")
 public class MecanumTeleOp extends LinearOpMode {
+
+    private static final float TRIGGER_PRESSED = 0.5f;
 
     private ElapsedTime runtime = new ElapsedTime();
 
     @Override
     public void runOpMode() {
         MecanumDrive drive = new MecanumDrive(hardwareMap);
+        Intake intake = new Intake(hardwareMap);
+        Shooters shooters = new Shooters(hardwareMap);
         drive.init();
+        intake.init();
+        shooters.init();
 
         telemetry.addData("Status", "Initialized");
         telemetry.update();
@@ -80,10 +92,39 @@ public class MecanumTeleOp extends LinearOpMode {
             double yaw = gamepad1.right_stick_x;
 
             drive.drive(axial, lateral, yaw);
+            readIntakeControls(intake);
+            readShooterControls(shooters);
 
             telemetry.addData("Status", "Run Time: " + runtime.toString());
             telemetry.addData("Forward / Strafe / Turn", "%4.2f, %4.2f, %4.2f", axial, lateral, yaw);
+            telemetry.addData("Intake", intake.isRunning() ? "on" : "off");
+            telemetry.addData("Nectar / Pollen", "%s / %s",
+                    shooters.isNectarRunning() ? "on" : "off",
+                    shooters.isPollenRunning() ? "on" : "off");
             telemetry.update();
+        }
+    }
+
+    private void readIntakeControls(Intake intake) {
+        // Off wins when both buttons are pressed, so a held button cannot force the motor to stay on.
+        if (gamepad2.cross) {
+            intake.setRunning(false);
+        } else if (gamepad2.circle) {
+            intake.setRunning(true);
+        }
+    }
+
+    private void readShooterControls(Shooters shooters) {
+        if (gamepad2.left_bumper) {
+            shooters.setNectarRunning(false);
+        } else if (gamepad2.left_trigger > TRIGGER_PRESSED) {
+            shooters.setNectarRunning(true);
+        }
+
+        if (gamepad2.right_bumper) {
+            shooters.setPollenRunning(false);
+        } else if (gamepad2.right_trigger > TRIGGER_PRESSED) {
+            shooters.setPollenRunning(true);
         }
     }
 }
