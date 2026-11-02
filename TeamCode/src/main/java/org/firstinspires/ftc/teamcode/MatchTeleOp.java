@@ -64,8 +64,8 @@ import com.qualcomm.robotcore.util.ElapsedTime;
  * Each motor stays in that state until the other button is pressed.
  */
 
-@TeleOp(name="Mecanum Drive", group="Drive")
-public class MecanumTeleOp extends LinearOpMode {
+@TeleOp(name = "Match Teleop", group = "Drive")
+public class MatchTeleOp extends LinearOpMode {
 
     private static final float TRIGGER_PRESSED = 0.5f;
 

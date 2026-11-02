@@ -7,9 +7,10 @@ import com.qualcomm.robotcore.util.ElapsedTime;
 /*
  * Drives the mecanum robot straight forward for three seconds, then stops.
  * Motor names and directions come from MecanumDrive, the same class teleop uses.
+ * Selecting this OpMode also preselects Match Teleop for the driver-controlled period.
  */
-@Autonomous(name = "Drive Forward", group = "Auto")
-public class DriveForwardAuto extends LinearOpMode {
+@Autonomous(name = "Basic Auto", group = "Auto", preselectTeleOp = "Match Teleop")
+public class BasicAutoMode extends LinearOpMode {
 
     static final double FORWARD_POWER = 0.6;
     static final double DRIVE_SECONDS = 3.0;
