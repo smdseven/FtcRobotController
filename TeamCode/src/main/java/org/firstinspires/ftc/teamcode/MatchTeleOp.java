@@ -164,6 +164,9 @@ public class MatchTeleOp extends LinearOpMode {
                     speedTrimEnabled = true;
                     ignoreTriangleUntilRelease = true;
                     triangleHoldSeconds = 0;
+                    // The press that started this hold stays stored until read.
+                    // Clear it so releasing Triangle is not treated as the press that leaves trim.
+                    gamepad2.triangleWasPressed();
                 }
             } else {
                 triangleHoldSeconds = 0;
