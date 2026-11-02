@@ -57,7 +57,8 @@ import com.qualcomm.robotcore.util.ElapsedTime;
  * flip FORWARD and REVERSE on the motors in that class.
  *
  * Gamepad 2 runs the intake through Intake and the shooters through Shooters.
- * Circle turns the intake on and Cross turns it off.
+ * Circle runs the intake forward, Square runs it in reverse at half power, and Cross stops it.
+ * A direction change pauses briefly at zero power before the motor reverses.
  * L2 turns the nectar shooter on and L1 turns it off.
  * R2 turns the pollen shooter on and R1 turns it off.
  * Each motor stays in that state until the other button is pressed.
@@ -97,7 +98,7 @@ public class MecanumTeleOp extends LinearOpMode {
 
             telemetry.addData("Status", "Run Time: " + runtime.toString());
             telemetry.addData("Forward / Strafe / Turn", "%4.2f, %4.2f, %4.2f", axial, lateral, yaw);
-            telemetry.addData("Intake", intake.isRunning() ? "on" : "off");
+            telemetry.addData("Intake", intake.status());
             telemetry.addData("Nectar / Pollen", "%s / %s",
                     shooters.isNectarRunning() ? "on" : "off",
                     shooters.isPollenRunning() ? "on" : "off");
@@ -106,12 +107,15 @@ public class MecanumTeleOp extends LinearOpMode {
     }
 
     private void readIntakeControls(Intake intake) {
-        // Off wins when both buttons are pressed, so a held button cannot force the motor to stay on.
+        // Cross wins over Circle or Square. Circle and Square together are ignored so they cannot fight.
         if (gamepad2.cross) {
-            intake.setRunning(false);
-        } else if (gamepad2.circle) {
-            intake.setRunning(true);
+            intake.request(Intake.Direction.STOPPED);
+        } else if (gamepad2.circle && !gamepad2.square) {
+            intake.request(Intake.Direction.FORWARD);
+        } else if (gamepad2.square && !gamepad2.circle) {
+            intake.request(Intake.Direction.REVERSE);
         }
+        intake.update();
     }
 
     private void readShooterControls(Shooters shooters) {
