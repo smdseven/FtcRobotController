@@ -79,12 +79,13 @@ public class MatchTeleOp extends LinearOpMode {
     private boolean speedTrimEnabled = false;
     private double triangleHoldSeconds = 0;
     private boolean ignoreTriangleUntilRelease = false;
+    private Shooters shooters;
 
     @Override
     public void runOpMode() {
         MecanumDrive drive = new MecanumDrive(hardwareMap);
         Intake intake = new Intake(hardwareMap);
-        Shooters shooters = new Shooters(hardwareMap);
+        shooters = new Shooters(hardwareMap);
         drive.init();
         intake.init();
         shooters.init();
@@ -121,6 +122,8 @@ public class MatchTeleOp extends LinearOpMode {
                     Math.round(shooters.getPollenPower() * 100));
             telemetry.update();
         }
+
+        shooters.save();
     }
 
     private void readIntakeControls(Intake intake) {
@@ -183,6 +186,7 @@ public class MatchTeleOp extends LinearOpMode {
 
         if (gamepad2.triangleWasPressed()) {
             speedTrimEnabled = false;
+            shooters.save();
         }
     }
 
