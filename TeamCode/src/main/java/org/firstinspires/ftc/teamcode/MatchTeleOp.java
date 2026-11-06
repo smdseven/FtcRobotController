@@ -59,18 +59,18 @@ import com.qualcomm.robotcore.util.ElapsedTime;
  * Gamepad 2 runs the intake through Intake and the shooters through Shooters.
  * Circle runs the intake forward, Square runs it in reverse at half power, and Cross stops it.
  * A direction change pauses briefly at zero power before the motor reverses.
- * L2 turns the nectar shooter on and L1 turns it off.
- * R2 turns the pollen shooter on and R1 turns it off.
- * Hold Triangle for 3 seconds to enter shooter speed trim. A later press leaves trim.
- * While trim is on, the left stick trims nectar and the right stick trims pollen.
- * Stick up raises the saved speed slowly, and stick down lowers it.
- * Each motor stays on or off until the other button is pressed.
+ * A fresh L2 press runs one nectar shot. A fresh R2 press runs one pollen shot.
+ * The cycle spins the wheel up, opens the gate, closes the gate, then stops the wheel.
+ * L1 cancels nectar and R1 cancels pollen. The gate then blocks and that wheel stops.
+ * Holding the driver's R2 uses the saved slow-speed percentage alone. Releasing it
+ * returns to the saved max-speed percentage.
+ * Hold Triangle for 3 seconds to enter trim. A later press leaves trim.
+ * D-pad up and down choose one saved value. The right stick raises or lowers it.
  */
 
 @TeleOp(name = "Match Teleop", group = "Drive")
 public class MatchTeleOp extends LinearOpMode {
 
-    private static final float TRIGGER_PRESSED = 0.5f;
     private static final float STICK_DEADZONE = 0.05f;
     private static final double TRIM_ENTER_HOLD_SECONDS = 3.0;
 
@@ -79,6 +79,7 @@ public class MatchTeleOp extends LinearOpMode {
     private boolean speedTrimEnabled = false;
     private double triangleHoldSeconds = 0;
     private boolean ignoreTriangleUntilRelease = false;
+    private TrimTarget trimTarget = TrimTarget.NECTAR_SPEED;
     private Shooters shooters;
 
     @Override
@@ -106,24 +107,35 @@ public class MatchTeleOp extends LinearOpMode {
             double lateral = gamepad1.left_stick_x;
             double yaw = gamepad1.right_stick_x;
 
-            drive.drive(axial, lateral, yaw);
+            boolean slowDrive = gamepad1.right_trigger_pressed;
+            drive.drive(axial, lateral, yaw, slowDrive);
             readIntakeControls(intake);
-            readShooterControls(shooters, loopSeconds);
+            readOperatorControls(drive, intake, shooters, loopSeconds);
 
             telemetry.addData("Status", "Run Time: " + runtime.toString());
             telemetry.addData("Forward / Strafe / Turn", "%4.2f, %4.2f, %4.2f", axial, lateral, yaw);
+            telemetry.addData("Drive", slowDrive ? "slow %d%%" : "max %d%%",
+                    Math.round((slowDrive ? drive.getSlowScale() : drive.getMaxScale()) * 100));
             telemetry.addData("Intake", intake.status());
             telemetry.addData("Nectar / Pollen", "%s / %s",
-                    shooters.isNectarRunning() ? "on" : "off",
-                    shooters.isPollenRunning() ? "on" : "off");
-            telemetry.addData("Speed trim", speedTrimEnabled ? "on" : "off");
-            telemetry.addData("Nectar / Pollen speed", "%d%% / %d%%",
-                    Math.round(shooters.getNectarPower() * 100),
-                    Math.round(shooters.getPollenPower() * 100));
+                    shooters.nectarStatus(),
+                    shooters.pollenStatus());
+            if (speedTrimEnabled) {
+                telemetry.addData("Trim", trimTarget.label());
+                telemetry.addData("Value", formatTrim(trimTarget, intake, drive));
+            } else {
+                telemetry.addData("Trim", "off");
+                telemetry.addData("Nectar / Pollen speed", "%d%% / %d%%",
+                        Math.round(shooters.getNectarPower() * 100),
+                        Math.round(shooters.getPollenPower() * 100));
+            }
             telemetry.update();
         }
 
+        shooters.stop();
         shooters.save();
+        intake.save();
+        drive.save();
     }
 
     private void readIntakeControls(Intake intake) {
@@ -138,28 +150,151 @@ public class MatchTeleOp extends LinearOpMode {
         intake.update();
     }
 
-    private void readShooterControls(Shooters shooters, double loopSeconds) {
-        updateSpeedTrim(loopSeconds);
+    private void readOperatorControls(MecanumDrive drive, Intake intake, Shooters shooters, double loopSeconds) {
+        updateSpeedTrim(drive, intake, loopSeconds);
 
+        if (speedTrimEnabled) {
+            if (gamepad2.dpadUpWasPressed()) {
+                trimTarget = adjacentTarget(-1);
+            } else if (gamepad2.dpadDownWasPressed()) {
+                trimTarget = adjacentTarget(1);
+            }
+            adjustTrim(
+                    trimTarget,
+                    stickDelta(gamepad2.right_stick_y, loopSeconds, trimTarget.changePerSecond()),
+                    drive,
+                    intake);
+        }
+
+        // An idle gate follows its open position only while that gate's open value is selected.
+        shooters.setGatePreview(
+                speedTrimEnabled && trimTarget == TrimTarget.NECTAR_OPEN,
+                speedTrimEnabled && trimTarget == TrimTarget.POLLEN_OPEN);
+
+        // The bumper wins when it is held with its trigger. Consume the trigger edge
+        // so releasing the bumper does not count as a new shot.
         if (gamepad2.left_bumper) {
-            shooters.setNectarRunning(false);
-        } else if (gamepad2.left_trigger > TRIGGER_PRESSED) {
-            shooters.setNectarRunning(true);
+            shooters.cancelNectar();
+            gamepad2.leftTriggerWasPressed();
+        } else if (gamepad2.leftTriggerWasPressed()) {
+            shooters.startNectar();
         }
 
         if (gamepad2.right_bumper) {
-            shooters.setPollenRunning(false);
-        } else if (gamepad2.right_trigger > TRIGGER_PRESSED) {
-            shooters.setPollenRunning(true);
+            shooters.cancelPollen();
+            gamepad2.rightTriggerWasPressed();
+        } else if (gamepad2.rightTriggerWasPressed()) {
+            shooters.startPollen();
         }
 
-        if (speedTrimEnabled) {
-            shooters.adjustNectarPower(powerDelta(gamepad2.left_stick_y, loopSeconds));
-            shooters.adjustPollenPower(powerDelta(gamepad2.right_stick_y, loopSeconds));
+        shooters.update(loopSeconds);
+    }
+
+    private TrimTarget adjacentTarget(int direction) {
+        TrimTarget[] targets = TrimTarget.values();
+        int index = trimTarget.ordinal() + direction;
+        if (index < 0) {
+            index = targets.length - 1;
+        } else if (index >= targets.length) {
+            index = 0;
+        }
+        return targets[index];
+    }
+
+    private void adjustTrim(TrimTarget target, double delta, MecanumDrive drive, Intake intake) {
+        switch (target) {
+            case NECTAR_SPEED:
+                shooters.adjustNectar(Shooters.Part.SPEED, delta);
+                break;
+            case POLLEN_SPEED:
+                shooters.adjustPollen(Shooters.Part.SPEED, delta);
+                break;
+            case INTAKE_SPEED:
+                intake.adjustSpeed(delta);
+                break;
+            case DRIVE_MAX:
+                drive.adjustMax(delta);
+                break;
+            case DRIVE_SLOW:
+                drive.adjustSlow(delta);
+                break;
+            case NECTAR_BLOCK:
+                shooters.adjustNectar(Shooters.Part.BLOCK, delta);
+                break;
+            case NECTAR_OPEN:
+                shooters.adjustNectar(Shooters.Part.OPEN, delta);
+                break;
+            case POLLEN_BLOCK:
+                shooters.adjustPollen(Shooters.Part.BLOCK, delta);
+                break;
+            case POLLEN_OPEN:
+                shooters.adjustPollen(Shooters.Part.OPEN, delta);
+                break;
+            case NECTAR_SPIN_UP:
+                shooters.adjustNectar(Shooters.Part.SPIN_UP, delta);
+                break;
+            case NECTAR_RELEASE:
+                shooters.adjustNectar(Shooters.Part.RELEASE, delta);
+                break;
+            case NECTAR_CLOSE:
+                shooters.adjustNectar(Shooters.Part.CLOSE, delta);
+                break;
+            case POLLEN_SPIN_UP:
+                shooters.adjustPollen(Shooters.Part.SPIN_UP, delta);
+                break;
+            case POLLEN_RELEASE:
+                shooters.adjustPollen(Shooters.Part.RELEASE, delta);
+                break;
+            case POLLEN_CLOSE:
+                shooters.adjustPollen(Shooters.Part.CLOSE, delta);
+                break;
+            default:
+                break;
         }
     }
 
-    private void updateSpeedTrim(double loopSeconds) {
+    private String formatTrim(TrimTarget target, Intake intake, MecanumDrive drive) {
+        switch (target) {
+            case NECTAR_SPEED:
+                return shooters.formatNectar(Shooters.Part.SPEED);
+            case POLLEN_SPEED:
+                return shooters.formatPollen(Shooters.Part.SPEED);
+            case INTAKE_SPEED:
+                return percent(intake.getSpeed());
+            case DRIVE_MAX:
+                return percent(drive.getMaxScale());
+            case DRIVE_SLOW:
+                return percent(drive.getSlowScale());
+            case NECTAR_BLOCK:
+                return shooters.formatNectar(Shooters.Part.BLOCK);
+            case NECTAR_OPEN:
+                return shooters.formatNectar(Shooters.Part.OPEN);
+            case POLLEN_BLOCK:
+                return shooters.formatPollen(Shooters.Part.BLOCK);
+            case POLLEN_OPEN:
+                return shooters.formatPollen(Shooters.Part.OPEN);
+            case NECTAR_SPIN_UP:
+                return shooters.formatNectar(Shooters.Part.SPIN_UP);
+            case NECTAR_RELEASE:
+                return shooters.formatNectar(Shooters.Part.RELEASE);
+            case NECTAR_CLOSE:
+                return shooters.formatNectar(Shooters.Part.CLOSE);
+            case POLLEN_SPIN_UP:
+                return shooters.formatPollen(Shooters.Part.SPIN_UP);
+            case POLLEN_RELEASE:
+                return shooters.formatPollen(Shooters.Part.RELEASE);
+            case POLLEN_CLOSE:
+                return shooters.formatPollen(Shooters.Part.CLOSE);
+            default:
+                return "";
+        }
+    }
+
+    private static String percent(double fraction) {
+        return Math.round(fraction * 100) + "%";
+    }
+
+    private void updateSpeedTrim(MecanumDrive drive, Intake intake, double loopSeconds) {
         if (!speedTrimEnabled) {
             if (gamepad2.triangle) {
                 triangleHoldSeconds += loopSeconds;
@@ -170,6 +305,9 @@ public class MatchTeleOp extends LinearOpMode {
                     // The press that started this hold stays stored until read.
                     // Clear it so releasing Triangle is not treated as the press that leaves trim.
                     gamepad2.triangleWasPressed();
+                    // A D-pad press from before trim must not change the setting on entry.
+                    gamepad2.dpadUpWasPressed();
+                    gamepad2.dpadDownWasPressed();
                 }
             } else {
                 triangleHoldSeconds = 0;
@@ -187,14 +325,63 @@ public class MatchTeleOp extends LinearOpMode {
         if (gamepad2.triangleWasPressed()) {
             speedTrimEnabled = false;
             shooters.save();
+            intake.save();
+            drive.save();
         }
     }
 
-    private double powerDelta(float stickY, double loopSeconds) {
+    private double stickDelta(float stickY, double loopSeconds, double changePerSecond) {
         if (Math.abs(stickY) < STICK_DEADZONE) {
             return 0;
         }
-        // Stick up is negative. Negating it makes up increase power and down decrease it.
-        return -stickY * Shooters.POWER_CHANGE_PER_SECOND * loopSeconds;
+        // Stick up is negative. Negating it makes up increase the setting and down decrease it.
+        return -stickY * changePerSecond * loopSeconds;
+    }
+
+    private enum TrimTarget {
+        NECTAR_SPEED("nectar speed"),
+        POLLEN_SPEED("pollen speed"),
+        INTAKE_SPEED("intake speed"),
+        DRIVE_MAX("drive max"),
+        DRIVE_SLOW("drive slow"),
+        NECTAR_BLOCK("nectar block"),
+        NECTAR_OPEN("nectar open"),
+        POLLEN_BLOCK("pollen block"),
+        POLLEN_OPEN("pollen open"),
+        NECTAR_SPIN_UP("nectar spin-up"),
+        NECTAR_RELEASE("nectar release"),
+        NECTAR_CLOSE("nectar close"),
+        POLLEN_SPIN_UP("pollen spin-up"),
+        POLLEN_RELEASE("pollen release"),
+        POLLEN_CLOSE("pollen close");
+
+        private final String label;
+
+        TrimTarget(String label) {
+            this.label = label;
+        }
+
+        private String label() {
+            return label;
+        }
+
+        private double changePerSecond() {
+            switch (this) {
+                case NECTAR_SPIN_UP:
+                case NECTAR_RELEASE:
+                case NECTAR_CLOSE:
+                case POLLEN_SPIN_UP:
+                case POLLEN_RELEASE:
+                case POLLEN_CLOSE:
+                    return Shooters.TIME_CHANGE_PER_SECOND;
+                case NECTAR_BLOCK:
+                case NECTAR_OPEN:
+                case POLLEN_BLOCK:
+                case POLLEN_OPEN:
+                    return Shooters.POSITION_CHANGE_PER_SECOND;
+                default:
+                    return Shooters.POWER_CHANGE_PER_SECOND;
+            }
+        }
     }
 }
